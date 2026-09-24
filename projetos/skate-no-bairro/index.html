@@ -59,7 +59,7 @@
 
   <canvas id="game" width="900" height="500"></canvas>
 
-  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · desvie dos Charcadeths e chegue ao fim da rua 🛹</div>
+  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · desvie dos Charcadeths e Ceruledges e chegue ao fim da rua 🛹</div>
 
   <div id="overlay">
     <h2 id="overlayTitle">🏁 CHEGOU!</h2>
@@ -72,7 +72,8 @@
 /* =========================================================
    SKATE NO BAIRRO — jogo modelo da Aula 5 (corredor de 3
    pistas, visto de trás). Skatista, controle, moedas,
-   obstáculos (Charcadeths) e objetivo (chegar ao fim da rua)
+   obstáculos (Charcadeths e Ceruledges, aleatórios) e objetivo
+   (chegar ao fim da rua)
    já funcionam, mas ainda não tem vida extra, perseguidor
    nem níveis — isso a turma constrói nas missões, uma de
    cada vez, sempre em cima deste código.
@@ -123,17 +124,23 @@ function buildCoins() {
 }
 buildCoins();
 
-// ---------- Obstáculos (Charcadeths) ----------
-// Cada Charcadeth "tampa" 2 das 3 pistas, sempre sobrando 1 pista
+// ---------- Obstáculos (Charcadeths e Ceruledges) ----------
+// Cada obstáculo "tampa" 2 das 3 pistas, sempre sobrando 1 pista
 // livre. Encostar em uma das pistas bloqueadas = GAME OVER.
+// A distância entre um obstáculo e outro é sorteada (não é mais
+// sempre a mesma), e o tipo (Charcadeth ou Ceruledge) também é
+// sorteado a cada obstáculo.
 let obstacles = [];
 function buildObstacles() {
   obstacles = [];
   let n = 0;
-  for (let m = 90; m < TRACK_LENGTH - 50; m += 70) {
+  let m = 90;
+  while (m < TRACK_LENGTH - 50) {
     const openLane = Math.floor(hash(n*11 + 4) * 3);
     const blocked = [0, 1, 2].filter(l => l !== openLane);
-    obstacles.push({ d: m, openLane, blocked, passed: false });
+    const type = hash(n*17 + 9) < 0.3 ? 'ceruledge' : 'charcadeth';
+    obstacles.push({ d: m, openLane, blocked, passed: false, type });
+    m += 55 + hash(n*13 + 2) * 45; // próximo obstáculo entre 55 e 100m à frente
     n++;
   }
 }
@@ -187,7 +194,7 @@ function update(dt) {
     if (d < 1.0 && d > -1.2) {
       o.passed = true;
       if (Math.abs(player.lane - o.openLane) > 0.55) {
-        loseGame();
+        loseGame(o.type);
         return;
       }
     }
@@ -207,10 +214,11 @@ function winGame() {
   document.getElementById('overlay').classList.add('show');
 }
 
-function loseGame() {
+function loseGame(type) {
   gameOver = true;
+  const nome = type === 'ceruledge' ? 'Ceruledge' : 'Charcadeth';
   document.getElementById('overlayTitle').textContent = '💥 GAME OVER';
-  document.getElementById('overlayText').textContent = `Você esbarrou em um Charcadeth! Chegou até ${Math.floor(distance)}m com ${coinCount} moedas.`;
+  document.getElementById('overlayText').textContent = `Você esbarrou em um ${nome}! Chegou até ${Math.floor(distance)}m com ${coinCount} moedas.`;
   document.getElementById('overlay').classList.add('show');
 }
 
@@ -521,12 +529,115 @@ function drawCharcadeth(lane, d) {
   ctx.restore();
 }
 
+// Ceruledge: samurai sombrio com lâminas de fogo azul nos braços.
+// Igual ao Charcadeth, bloqueia 2 pistas e não dá pra pular por cima.
+function drawCeruledge(lane, d) {
+  const s = sc(d);
+  if (s <= 0.02) return;
+  const x = laneX(lane, d), y = gy(d);
+  const h = 118 * s, w = 44 * s;
+
+  // sombra
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(x, y + 4*s, w*0.5, 9*s, 0, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  const wob = Math.sin(time*4.5 + lane*3 + d) * 1.6*s;
+  ctx.translate(x + wob, y);
+
+  // capa esvoaçante atrás
+  const capeSwing = Math.sin(time*3 + lane) * 8*s;
+  ctx.fillStyle = '#7a1030';
+  ctx.beginPath();
+  ctx.moveTo(-w*0.3, -h*0.55);
+  ctx.quadraticCurveTo(-w*0.9 + capeSwing, -h*0.4, -w*0.7 + capeSwing, -h*0.02);
+  ctx.quadraticCurveTo(-w*0.4, -h*0.1, -w*0.28, -h*0.3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(w*0.3, -h*0.55);
+  ctx.quadraticCurveTo(w*0.9 - capeSwing, -h*0.4, w*0.7 - capeSwing, -h*0.02);
+  ctx.quadraticCurveTo(w*0.4, -h*0.1, w*0.28, -h*0.3);
+  ctx.closePath();
+  ctx.fill();
+
+  // pernas
+  ctx.fillStyle = '#1b1626';
+  ctx.fillRect(-w*0.24, -h*0.22, w*0.18, h*0.22);
+  ctx.fillRect(w*0.06, -h*0.22, w*0.18, h*0.22);
+
+  // corpo/armadura
+  const bodyG = ctx.createLinearGradient(-w/2, -h, w/2, -h*0.2);
+  bodyG.addColorStop(0, '#2b2140'); bodyG.addColorStop(1, '#140f22');
+  ctx.fillStyle = bodyG; ctx.strokeStyle = '#c81e3a'; ctx.lineWidth = Math.max(1, 2*s);
+  ctx.beginPath();
+  ctx.moveTo(-w*0.34, -h*0.2);
+  ctx.quadraticCurveTo(-w*0.42, -h*0.7, -w*0.18, -h*0.92);
+  ctx.quadraticCurveTo(0, -h*1.0, w*0.18, -h*0.92);
+  ctx.quadraticCurveTo(w*0.42, -h*0.7, w*0.34, -h*0.2);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // peitoral vermelho brilhante
+  const chestG = ctx.createRadialGradient(0, -h*0.55, 2*s, 0, -h*0.55, 16*s);
+  chestG.addColorStop(0, '#ff5a7a'); chestG.addColorStop(1, '#7a1030');
+  ctx.fillStyle = chestG;
+  ctx.beginPath(); ctx.ellipse(0, -h*0.55, w*0.14, h*0.16, 0, 0, Math.PI*2); ctx.fill();
+
+  // lâminas de fogo azul nos braços
+  function drawBlade(sideMul) {
+    ctx.save();
+    ctx.translate(sideMul * w*0.4, -h*0.62);
+    ctx.rotate(sideMul * (0.5 + Math.sin(time*3 + lane) * 0.12));
+    const bg = ctx.createLinearGradient(0, -h*0.5, 0, h*0.05);
+    bg.addColorStop(0, '#eafcff'); bg.addColorStop(0.4, '#5ad1ff'); bg.addColorStop(1, '#0a4a8f');
+    ctx.fillStyle = bg; ctx.strokeStyle = '#0a2a52'; ctx.lineWidth = Math.max(1, 1.6*s);
+    ctx.beginPath();
+    ctx.moveTo(0, h*0.05);
+    ctx.lineTo(sideMul*w*0.1, -h*0.05);
+    ctx.lineTo(sideMul*w*0.06, -h*0.55);
+    ctx.lineTo(0, -h*0.62);
+    ctx.lineTo(-sideMul*w*0.06, -h*0.3);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  drawBlade(-1);
+  drawBlade(1);
+
+  // cabeça
+  ctx.fillStyle = '#1b1626';
+  ctx.beginPath(); ctx.ellipse(0, -h*0.98, w*0.15, h*0.09, 0, 0, Math.PI*2); ctx.fill();
+
+  // crista de fogo na cabeça
+  const flameG = ctx.createRadialGradient(0, -h*1.12, 1, 0, -h*1.12, 14*s);
+  flameG.addColorStop(0, '#fff3b0'); flameG.addColorStop(0.5, '#ff8a3d'); flameG.addColorStop(1, '#c81e3a');
+  ctx.fillStyle = flameG;
+  ctx.beginPath();
+  ctx.moveTo(-w*0.12, -h*0.98);
+  ctx.quadraticCurveTo(-w*0.06, -h*1.22, 0, -h*1.3);
+  ctx.quadraticCurveTo(w*0.06, -h*1.22, w*0.12, -h*0.98);
+  ctx.closePath();
+  ctx.fill();
+
+  // olhos vermelhos brilhantes
+  ctx.fillStyle = '#ff3355';
+  ctx.beginPath(); ctx.ellipse(-w*0.05, -h*0.98, 2.6*s, 2*s, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(w*0.05, -h*0.98, 2.6*s, 2*s, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
 function drawObstacles() {
   for (let i = obstacles.length - 1; i >= 0; i--) {
     const o = obstacles[i];
     const d = o.d - distance;
     if (d < -3 || d > MAX_D) continue;
-    for (const lane of o.blocked) drawCharcadeth(lane, d);
+    const drawMonster = o.type === 'ceruledge' ? drawCeruledge : drawCharcadeth;
+    for (const lane of o.blocked) drawMonster(lane, d);
   }
 }
 
