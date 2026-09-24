@@ -46,6 +46,25 @@
     box-shadow:0 5px 0 #8f1d38;
   }
   #overlay button:active { box-shadow:0 2px 0 #8f1d38; transform:translateY(3px); }
+
+  #vaseLight {
+    position:absolute; inset:0; z-index:4; pointer-events:none;
+    box-shadow: inset 0 0 0 0 rgba(255,0,0,0);
+  }
+  #vaseLight.show { animation: vaseFlash 0.35s infinite alternate; }
+  @keyframes vaseFlash {
+    from { box-shadow: inset 0 0 90px 30px rgba(255,20,20,.75); }
+    to   { box-shadow: inset 0 0 40px 10px rgba(255,20,20,.25); }
+  }
+  #vaseAlert {
+    position:absolute; top:38px; left:50%; transform:translateX(-50%);
+    background:#ff2d2d; color:#fff; padding:8px 14px; border-radius:8px;
+    font-size:10px; text-shadow:1px 1px 0 #000; text-align:center; line-height:1.7;
+    z-index:6; display:none; box-shadow:0 0 0 3px #fff, 0 4px 0 #8f1d38;
+    white-space:nowrap;
+  }
+  #vaseAlert.show { display:block; animation: vasePulse 0.4s infinite alternate; }
+  @keyframes vasePulse { from { opacity:1; } to { opacity:0.55; } }
 </style>
 </head>
 <body>
@@ -59,8 +78,10 @@
   </div>
 
   <canvas id="game" width="900" height="500"></canvas>
+  <div id="vaseLight"></div>
+  <div id="vaseAlert">⚠️ CUIDADO!<br>Vaso caindo!</div>
 
-  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · desvie dos Charcadeths e Ceruledges e chegue ao fim da rua 🛹</div>
+  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · desvie dos Charcadeths, Ceruledges e do vaso e chegue ao fim da rua 🛹</div>
 
   <div id="overlay">
     <h2 id="overlayTitle">🏁 CHEGOU!</h2>
@@ -74,10 +95,11 @@
    SKATE NO BAIRRO — jogo modelo da Aula 5 (corredor de 3
    pistas, visto de trás). Skatista, controle, moedas,
    obstáculos (Charcadeths e Ceruledges, aleatórios), 3 vidas com
-   um tempinho de imunidade piscando depois de cada susto, e
-   objetivo (chegar ao fim da rua) já funcionam, mas ainda não
-   tem perseguidor nem níveis — isso a turma constrói nas
-   missões, uma de cada vez, sempre em cima deste código.
+   um tempinho de imunidade piscando depois de cada susto, um vaso
+   surpresa que avisa com luz vermelha antes de cair, e objetivo
+   (chegar ao fim da rua) já funcionam, mas ainda não tem
+   perseguidor nem níveis — isso a turma constrói nas missões,
+   uma de cada vez, sempre em cima deste código.
    ========================================================= */
 
 const canvas = document.getElementById('game');
@@ -107,6 +129,19 @@ const INVINCIBLE_TIME = 1.6; // segundos de imunidade piscando após um susto
 let lives = START_LIVES;
 let invincible = false;
 let invincibleTimer = 0;
+
+// ---------- Vaso surpresa ----------
+// De vez em quando um vaso cai do nada em uma das pistas. Antes de
+// cair, uma luz vermelha pisca na tela e aparece um aviso — dá tempo
+// de sair da pista. Estados: 'idle' -> 'warning' -> 'falling' -> 'broken'.
+const VASE_WARNING_TIME = 1.1; // segundos de aviso antes de cair
+const VASE_FALL_TIME = 0.35;   // segundos que o vaso leva pra cair
+const VASE_BROKEN_TIME = 0.4;  // segundos que os cacos ficam no chão
+const VASE_LANE_LABEL = ['ESQUERDA', 'DO MEIO', 'DIREITA'];
+let vaseState = 'idle';
+let vaseStateTimer = 0;
+let vaseTimer = 6 + Math.random() * 5; // tempo até o primeiro vaso
+let vaseLane = 1;
 
 // ---------- Perspectiva ----------
 function sc(d) { return FOCAL / (FOCAL + Math.max(d, -FOCAL*0.6)); }
@@ -183,6 +218,8 @@ function update(dt) {
     if (invincibleTimer <= 0) { invincible = false; invincibleTimer = 0; }
   }
 
+  updateVase(dt);
+
   if (!player.onGround) {
     player.vy -= GRAVITY * dt;
     player.jumpY += player.vy * dt;
@@ -228,6 +265,56 @@ function update(dt) {
   if (distance >= TRACK_LENGTH) winGame();
 }
 
+// Controla o ciclo do vaso surpresa: espera, avisa (luz vermelha +
+// alerta), cai e, se acertar o skatista (e ele não estiver imune),
+// tira uma vida — exatamente como os outros obstáculos.
+function updateVase(dt) {
+  if (vaseState === 'idle') {
+    vaseTimer -= dt;
+    if (vaseTimer <= 0) {
+      vaseLane = Math.floor(Math.random() * 3);
+      vaseState = 'warning';
+      vaseStateTimer = VASE_WARNING_TIME;
+      document.getElementById('vaseAlert').innerHTML =
+        `⚠️ CUIDADO!<br>Vaso caindo na pista da ${VASE_LANE_LABEL[vaseLane]}!`;
+      document.getElementById('vaseAlert').classList.add('show');
+      document.getElementById('vaseLight').classList.add('show');
+    }
+  } else if (vaseState === 'warning') {
+    vaseStateTimer -= dt;
+    if (vaseStateTimer <= 0) {
+      vaseState = 'falling';
+      vaseStateTimer = VASE_FALL_TIME;
+      document.getElementById('vaseAlert').classList.remove('show');
+      document.getElementById('vaseLight').classList.remove('show');
+    }
+  } else if (vaseState === 'falling') {
+    vaseStateTimer -= dt;
+    if (vaseStateTimer <= 0) {
+      if (!invincible && Math.abs(player.lane - vaseLane) < 0.6) {
+        lives--;
+        document.getElementById('livesVal').textContent = lives;
+        if (lives <= 0) {
+          loseGame('vaso');
+          vaseState = 'broken';
+          vaseStateTimer = VASE_BROKEN_TIME;
+          return;
+        }
+        invincible = true;
+        invincibleTimer = INVINCIBLE_TIME;
+      }
+      vaseState = 'broken';
+      vaseStateTimer = VASE_BROKEN_TIME;
+    }
+  } else if (vaseState === 'broken') {
+    vaseStateTimer -= dt;
+    if (vaseStateTimer <= 0) {
+      vaseState = 'idle';
+      vaseTimer = 7 + Math.random() * 7; // até o próximo vaso
+    }
+  }
+}
+
 function winGame() {
   gameOver = true;
   document.getElementById('overlayTitle').textContent = '🏁 CHEGOU!';
@@ -237,7 +324,7 @@ function winGame() {
 
 function loseGame(type) {
   gameOver = true;
-  const nome = type === 'ceruledge' ? 'Ceruledge' : 'Charcadeth';
+  const nome = type === 'ceruledge' ? 'Ceruledge' : type === 'vaso' ? 'vaso' : 'Charcadeth';
   document.getElementById('overlayTitle').textContent = '💥 GAME OVER';
   document.getElementById('overlayText').textContent = `Você esbarrou em um ${nome}! Chegou até ${Math.floor(distance)}m com ${coinCount} moedas.`;
   document.getElementById('overlay').classList.add('show');
@@ -257,6 +344,12 @@ function restart() {
   document.getElementById('coinVal').textContent = 0;
   document.getElementById('livesVal').textContent = lives;
   document.getElementById('overlay').classList.remove('show');
+
+  vaseState = 'idle';
+  vaseStateTimer = 0;
+  vaseTimer = 6 + Math.random() * 5;
+  document.getElementById('vaseAlert').classList.remove('show');
+  document.getElementById('vaseLight').classList.remove('show');
 }
 
 // ---------- Desenho: utilidades ----------
@@ -655,6 +748,89 @@ function drawCeruledge(lane, d) {
   ctx.restore();
 }
 
+// Desenha o potinho de barro com planta, na origem local (usado
+// tanto no aviso quanto na queda).
+function drawVasePot(rot) {
+  ctx.save();
+  ctx.rotate(rot);
+  const potG = ctx.createLinearGradient(-18, -10, 18, 20);
+  potG.addColorStop(0, '#e08a4d'); potG.addColorStop(1, '#a85a2a');
+  ctx.fillStyle = potG; ctx.strokeStyle = '#6b3a1a'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-16, -10); ctx.lineTo(16, -10); ctx.lineTo(11, 22); ctx.lineTo(-11, 22);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#c96f36'; ctx.fillRect(-19, -16, 38, 8);
+  ctx.strokeStyle = '#2f9e44'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(-8, -34); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(4, -38); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(10, -30); ctx.stroke();
+  ctx.fillStyle = '#40c463';
+  [[-8, -34], [4, -38], [10, -30]].forEach(p => {
+    ctx.beginPath(); ctx.ellipse(p[0], p[1], 7, 4, 0.4, 0, Math.PI*2); ctx.fill();
+  });
+  ctx.restore();
+}
+
+// Ícone de alerta (!) pulsando bem em cima da pista, durante o aviso
+function drawVaseWarningIcon() {
+  if (vaseState !== 'warning') return;
+  const x = laneX(vaseLane, 0);
+  const pulse = 0.65 + 0.35 * Math.sin(time * 14);
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = '#ff2d2d';
+  ctx.beginPath(); ctx.arc(x, 58, 16, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = "bold 18px 'Press Start 2P', monospace";
+  ctx.textAlign = 'center';
+  ctx.fillText('!', x, 65);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+// O vaso caindo (depois do aviso) e os cacos quebrados (depois de cair)
+function drawVaseFalling() {
+  if (vaseState !== 'falling') return;
+  const x = laneX(vaseLane, 0);
+  const topY = -40;
+  const progress = 1 - vaseStateTimer / VASE_FALL_TIME;
+  const y = topY + (BASE_Y - topY) * progress;
+
+  ctx.save();
+  ctx.globalAlpha = 0.2 + 0.35 * progress;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(x, BASE_Y + 8, 10 + 22*progress, 5 + 7*progress, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y);
+  drawVasePot(progress * 2.4);
+  ctx.restore();
+}
+
+function drawVaseBroken() {
+  if (vaseState !== 'broken') return;
+  const x = laneX(vaseLane, 0);
+  const alpha = Math.max(0, vaseStateTimer / VASE_BROKEN_TIME);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#5c3a20';
+  ctx.beginPath(); ctx.ellipse(x, BASE_Y + 4, 22, 7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#a85a2a';
+  for (let i = 0; i < 6; i++) {
+    const ang = i * (Math.PI*2/6) + i;
+    const dist = 14 + i*3;
+    ctx.beginPath();
+    ctx.moveTo(x, BASE_Y);
+    ctx.lineTo(x + Math.cos(ang)*dist, BASE_Y - Math.abs(Math.sin(ang))*8);
+    ctx.lineTo(x + Math.cos(ang+0.3)*dist*0.6, BASE_Y + 4);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawObstacles() {
   for (let i = obstacles.length - 1; i >= 0; i--) {
     const o = obstacles[i];
@@ -772,7 +948,10 @@ function draw() {
   drawScenery();
   drawFinish();
   drawObstacles();
+  drawVaseWarningIcon();
   for (let i = coins.length - 1; i >= 0; i--) drawCoin(coins[i]);
+  drawVaseFalling();
+  drawVaseBroken();
   drawPlayer();
 }
 
