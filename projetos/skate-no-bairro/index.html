@@ -52,6 +52,7 @@
 
 <div id="wrap">
   <div id="hud">
+    <div class="stat">❤️ <b id="livesVal">3</b></div>
     <div class="stat">🪙 <b id="coinVal">0</b></div>
     <div id="progress"><div id="progressFill"></div><div id="progressIcon">🛹</div></div>
     <div class="stat">🏁 <b id="pctVal">0</b>%</div>
@@ -72,11 +73,11 @@
 /* =========================================================
    SKATE NO BAIRRO — jogo modelo da Aula 5 (corredor de 3
    pistas, visto de trás). Skatista, controle, moedas,
-   obstáculos (Charcadeths e Ceruledges, aleatórios) e objetivo
-   (chegar ao fim da rua)
-   já funcionam, mas ainda não tem vida extra, perseguidor
-   nem níveis — isso a turma constrói nas missões, uma de
-   cada vez, sempre em cima deste código.
+   obstáculos (Charcadeths e Ceruledges, aleatórios), 3 vidas com
+   um tempinho de imunidade piscando depois de cada susto, e
+   objetivo (chegar ao fim da rua) já funcionam, mas ainda não
+   tem perseguidor nem níveis — isso a turma constrói nas
+   missões, uma de cada vez, sempre em cima deste código.
    ========================================================= */
 
 const canvas = document.getElementById('game');
@@ -99,6 +100,13 @@ let distance = 0;
 let time = 0;
 let gameOver = false;
 let coinCount = 0;
+
+// ---------- Vidas e imunidade ----------
+const START_LIVES = 3;
+const INVINCIBLE_TIME = 1.6; // segundos de imunidade piscando após um susto
+let lives = START_LIVES;
+let invincible = false;
+let invincibleTimer = 0;
 
 // ---------- Perspectiva ----------
 function sc(d) { return FOCAL / (FOCAL + Math.max(d, -FOCAL*0.6)); }
@@ -170,6 +178,11 @@ function update(dt) {
 
   player.lane += (player.targetLane - player.lane) * Math.min(1, dt * 14);
 
+  if (invincible) {
+    invincibleTimer -= dt;
+    if (invincibleTimer <= 0) { invincible = false; invincibleTimer = 0; }
+  }
+
   if (!player.onGround) {
     player.vy -= GRAVITY * dt;
     player.jumpY += player.vy * dt;
@@ -187,15 +200,23 @@ function update(dt) {
     }
   }
 
-  // Charcadeths: pular não adianta, só dá pra desviar indo para os lados
+  // Charcadeths e Ceruledges: pular não adianta, só dá pra desviar
+  // indo para os lados. Se estiver piscando (imune), passa ileso.
   for (const o of obstacles) {
     if (o.passed) continue;
     const d = o.d - distance;
     if (d < 1.0 && d > -1.2) {
       o.passed = true;
       if (Math.abs(player.lane - o.openLane) > 0.55) {
-        loseGame(o.type);
-        return;
+        if (invincible) continue;
+        lives--;
+        document.getElementById('livesVal').textContent = lives;
+        if (lives <= 0) {
+          loseGame(o.type);
+          return;
+        }
+        invincible = true;
+        invincibleTimer = INVINCIBLE_TIME;
       }
     }
   }
@@ -226,12 +247,15 @@ function restart() {
   speed = START_SPEED;
   distance = 0; time = 0;
   coinCount = 0;
+  lives = START_LIVES;
+  invincible = false; invincibleTimer = 0;
   gameOver = false;
   player.lane = player.targetLane = 1;
   player.jumpY = 0; player.vy = 0; player.onGround = true;
   buildCoins();
   buildObstacles();
   document.getElementById('coinVal').textContent = 0;
+  document.getElementById('livesVal').textContent = lives;
   document.getElementById('overlay').classList.remove('show');
 }
 
@@ -665,6 +689,9 @@ function drawFinish() {
 }
 
 function drawPlayer() {
+  // enquanto está imune, o skatista pisca (some e aparece)
+  if (invincible && Math.floor(time * 12) % 2 === 0) return;
+
   const x = laneX(player.lane, 0);
   const jy = player.jumpY;
   const bob = player.onGround ? Math.sin(time*16) * 1.6 : 0;
