@@ -121,11 +121,13 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 // ---- os 4 mundos, trocam a cada 250 metros ----
 const DIST_MUNDO = 250; // metros por mundo
 const MUNDOS = [
-  { nome: 'FLORESTA DE ARCTHURUS', ceu1: '#0d2b1a', ceu2: '#052013', pilar: '#123a22', acento: '#7CFF9E', pedra: '#4a6d55' },
-  { nome: 'INFERNO DE GELO',       ceu1: '#0d2c48', ceu2: '#061830', pilar: '#14456b', acento: '#a6f0ff', pedra: '#6d92aa' },
-  { nome: 'VULCÃO YANG',           ceu1: '#3a0f0d', ceu2: '#1c0705', pilar: '#5c1c14', acento: '#ff8a3d', pedra: '#7a4436' },
-  { nome: 'BLUE GARDEN',           ceu1: '#0a0a30', ceu2: '#050516', pilar: '#181862', acento: '#7af6ff', pedra: '#5a5aa0' },
+  { tipo: 'floresta', nome: 'FLORESTA DE ARCTHURUS', ceu1: '#0d2b1a', ceu2: '#052013', pilar: '#123a22', acento: '#7CFF9E', pedra: '#4a6d55' },
+  { tipo: 'gelo',      nome: 'INFERNO DE GELO',       ceu1: '#0d2c48', ceu2: '#061830', pilar: '#14456b', acento: '#a6f0ff', pedra: '#6d92aa' },
+  { tipo: 'vulcao',    nome: 'VULCÃO YANG',           ceu1: '#3a0f0d', ceu2: '#1c0705', pilar: '#5c1c14', acento: '#ff8a3d', pedra: '#7a4436' },
+  { tipo: 'jardim',    nome: 'BLUE GARDEN',           ceu1: '#0a0a30', ceu2: '#050516', pilar: '#181862', acento: '#7af6ff', pedra: '#5a5aa0' },
 ];
+// número aleatório estável (mesmo resultado sempre pra mesma semente) — usado nos detalhes fixos do cenário
+function srand(seed) { const x = Math.sin(seed * 12.9898) * 43758.5453; return x - Math.floor(x); }
 
 let estado = 'inicio';          // inicio | jogando | gameover | vitoria
 let t = 0, dist = 0, vel = BASE_V;
@@ -135,6 +137,9 @@ let obst = [], gems = [], fx = [];
 let spawnT = 1, gemT = 1;
 const keys = { left: false, right: false };
 
+// ---- partículas de ambiente (vagalume, folha, neve, brasa, fumaça, estrela, cometa) ----
+let ambiente = [], ambT = 0;
+
 // ---- controle de mundo e do anel de transição ----
 let mundoIdx = 0;
 let anel = null;      // { t, dur } enquanto o anel de luz está se expandindo
@@ -143,7 +148,7 @@ let nomeT = 0;         // tempo restante mostrando o nome do mundo na tela
 function resetar() {
   estado = 'jogando'; t = 0; dist = 0; vidas = 3; invenc = 0; cristais = 0; shake = 0;
   jog.x = W / 2; jog.vx = 0; obst = []; gems = []; fx = []; spawnT = 1; gemT = 1;
-  mundoIdx = 0; anel = null; nomeT = 2.4;
+  mundoIdx = 0; anel = null; nomeT = 2.4; ambiente = []; ambT = 0;
 }
 
 function mundoAtual() { return MUNDOS[mundoIdx % MUNDOS.length]; }
@@ -168,6 +173,64 @@ function desenharObstaculo(o) {
 /* ---------- partículas ---------- */
 function burst(x, y, cor, n, v) {
   for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, s = rnd(30, v || 140); fx.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(.3, .7), max: .7, cor, r: rnd(1.5, 3.6) }); }
+}
+
+/* ---------- partículas de ambiente (o clima de cada mundo) ---------- */
+function atualizarAmbiente(dt) {
+  const tp = mundoAtual().tipo;
+  ambT -= dt;
+  if (ambT <= 0) {
+    if (tp === 'floresta') {
+      ambT = rnd(.18, .4);
+      if (Math.random() < .55) ambiente.push({ tipo: 'vagalume', x: rnd(30, W - 30), y: H + 20, fase: rnd(0, 6.28), vx: rnd(-8, 8) });
+      else ambiente.push({ tipo: 'folha', x: rnd(20, W - 20), y: H + 20, rot: rnd(0, 6.28), vrot: rnd(-2, 2), vx: rnd(-25, 25) });
+    } else if (tp === 'gelo') {
+      ambT = .05;
+      ambiente.push({ tipo: 'neve', x: rnd(0, W), y: H + 10, vx: rnd(-15, 15), r: rnd(1.5, 3.5) });
+    } else if (tp === 'vulcao') {
+      ambT = rnd(.06, .14);
+      if (Math.random() < .7) ambiente.push({ tipo: 'brasa', x: rnd(20, W - 20), y: H + 10, vx: rnd(-12, 12), extra: rnd(60, 140) });
+      else ambiente.push({ tipo: 'fumaca', x: rnd(30, W - 30), y: H + 30, r: rnd(10, 22), vx: rnd(-6, 6) });
+    } else if (tp === 'jardim') {
+      ambT = rnd(.5, 1.1);
+      if (Math.random() < .12) ambiente.push({ tipo: 'cometa', x: rnd(60, W - 60), y: H + 20, vx: rnd(-40, -10) });
+      else ambiente.push({ tipo: 'estrela', x: rnd(20, W - 20), y: H + 10, fase: rnd(0, 6.28), r: rnd(1, 2.6) });
+    }
+  }
+  for (const p of ambiente) {
+    p.y -= vel * dt * (p.tipo === 'brasa' ? 1.5 : p.tipo === 'cometa' ? 2.2 : 1);
+    p.x += (p.vx || 0) * dt;
+    if (p.tipo === 'folha') p.rot += p.vrot * dt;
+  }
+  ambiente = ambiente.filter(p => p.y > -40 && p.x > -30 && p.x < W + 30);
+}
+
+function desenharAmbiente() {
+  for (const p of ambiente) {
+    if (p.tipo === 'vagalume') {
+      const b = .5 + Math.sin(t * 4 + p.fase) * .5;
+      c.save(); c.globalAlpha = .3 + b * .7;
+      c.fillStyle = '#d9ff8a'; c.beginPath(); c.arc(p.x + Math.sin(t * 2 + p.fase) * 10, p.y, 2.4, 0, 7); c.fill();
+      c.restore();
+    } else if (p.tipo === 'folha') {
+      c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.fillStyle = '#5c9a4a';
+      c.beginPath(); c.ellipse(0, 0, 6, 3, 0, 0, 7); c.fill(); c.restore();
+    } else if (p.tipo === 'neve') {
+      c.save(); c.globalAlpha = .85; c.fillStyle = '#fff'; c.beginPath(); c.arc(p.x, p.y, p.r, 0, 7); c.fill(); c.restore();
+    } else if (p.tipo === 'brasa') {
+      c.save(); c.globalAlpha = .85; c.fillStyle = '#ffb347'; c.beginPath(); c.arc(p.x, p.y, 2.2, 0, 7); c.fill();
+      c.globalAlpha = .3; c.beginPath(); c.arc(p.x, p.y, 5, 0, 7); c.fill(); c.restore();
+    } else if (p.tipo === 'fumaca') {
+      c.save(); c.globalAlpha = .12; c.fillStyle = '#888'; c.beginPath(); c.arc(p.x, p.y, p.r, 0, 7); c.fill(); c.restore();
+    } else if (p.tipo === 'estrela') {
+      const b = .4 + Math.sin(t * 3 + p.fase) * .4;
+      c.save(); c.globalAlpha = .4 + b * .6; c.fillStyle = '#fff'; c.beginPath(); c.arc(p.x, p.y, p.r, 0, 7); c.fill(); c.restore();
+    } else if (p.tipo === 'cometa') {
+      c.save(); c.strokeStyle = '#bfe9ff'; c.globalAlpha = .8; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x - 24, p.y + 12); c.stroke();
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(p.x, p.y, 2, 0, 7); c.fill(); c.restore();
+    }
+  }
 }
 
 /* ---------- entrada ---------- */
@@ -209,6 +272,9 @@ function update(dt) {
     burst(jog.x, PY, mundoAtual().acento, 30, 220);
   }
   if (anel) { anel.t += dt; if (anel.t >= anel.dur) anel = null; }
+
+  // ---- clima e detalhes do mundo atual ----
+  atualizarAmbiente(dt);
 
   // ---- obstáculos ----
   spawnT -= dt;
@@ -263,6 +329,51 @@ function fundo() {
   const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, m.ceu1); g.addColorStop(1, m.ceu2); c.fillStyle = g; c.fillRect(0, 0, W, H);
   c.fillStyle = m.pilar; for (let k = -1; k < 8; k++) { const y = k * 100 - (dist % 100); c.fillRect(0, y, 26, 100); c.fillRect(W - 26, y, 26, 100); }
   c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 2; for (let k = -1; k < 8; k++) { const y = k * 100 - (dist % 100); c.strokeRect(2, y + 2, 22, 96); c.strokeRect(W - 24, y + 2, 22, 96); }
+  detalhesPilar(m, -1, 8);
+}
+
+/* detalhes fixos de cada mundo, desenhados em cima dos pilares das laterais */
+function detalhesPilar(m, ini, fim) {
+  for (let k = ini; k < fim; k++) {
+    const y = k * 100 - (dist % 100);
+    for (const lado of [0, 1]) {
+      const bx = lado === 0 ? 0 : W - 26;
+      const seed = k * 7 + lado * 3 + mundoIdx * 101;
+      if (m.tipo === 'floresta') {
+        // copa de árvore saindo do pilar
+        for (let i = 0; i < 2; i++) {
+          const sy = y + 20 + i * 46 + srand(seed + i) * 14;
+          const sx = lado === 0 ? bx + 26 : bx;
+          const r = 14 + srand(seed + i + 9) * 8;
+          c.fillStyle = '#1a4a2a'; c.beginPath(); c.arc(sx + (lado === 0 ? r * .5 : -r * .5), sy, r, 0, 7); c.fill();
+          c.fillStyle = '#2f6b3f'; c.beginPath(); c.arc(sx + (lado === 0 ? r * .3 : -r * .3), sy - 4, r * .6, 0, 7); c.fill();
+        }
+      } else if (m.tipo === 'gelo') {
+        // pingentes de gelo pendurados
+        for (let i = 0; i < 3; i++) {
+          const sx = bx + 4 + i * 8 + srand(seed + i) * 4;
+          const sy2 = y + srand(seed + i + 4) * 90;
+          const len = 10 + srand(seed + i + 20) * 16;
+          c.fillStyle = 'rgba(210,240,255,.75)'; c.beginPath();
+          c.moveTo(sx - 3, sy2); c.lineTo(sx + 3, sy2); c.lineTo(sx, sy2 + len); c.closePath(); c.fill();
+        }
+      } else if (m.tipo === 'vulcao') {
+        // rachadura brilhante de lava
+        c.strokeStyle = 'rgba(255,140,40,.8)'; c.lineWidth = 2.4; c.beginPath();
+        const sx = bx + 13; c.moveTo(sx, y + 6);
+        c.lineTo(sx + srand(seed) * 10 - 5, y + 35); c.lineTo(sx + srand(seed + 1) * 10 - 5, y + 68); c.lineTo(sx, y + 95);
+        c.stroke();
+        c.fillStyle = 'rgba(255,170,60,.9)'; c.beginPath(); c.arc(sx, y + 50 + srand(seed + 2) * 30, 2.4, 0, 7); c.fill();
+      } else if (m.tipo === 'jardim') {
+        // pequenas estrelas fixas cravadas no pilar
+        for (let i = 0; i < 4; i++) {
+          const sx = bx + 4 + srand(seed + i) * 18, sy2 = y + srand(seed + i + 10) * 96;
+          const b = .4 + Math.sin(t * 3 + seed + i) * .4;
+          c.save(); c.globalAlpha = .3 + b * .6; c.fillStyle = '#cfe8ff'; c.beginPath(); c.arc(sx, sy2, 1.6, 0, 7); c.fill(); c.restore();
+        }
+      }
+    }
+  }
 }
 
 function desenharAnel() {
@@ -292,6 +403,7 @@ function desenhar() {
   c.save();
   if (shake > 0) c.translate(rnd(-5, 5), rnd(-5, 5));
   fundo();
+  desenharAmbiente();
 
   for (const g of gems) {
     c.save(); c.translate(g.x, g.y); c.rotate(Math.sin(t * 3 + g.x) * .3);
