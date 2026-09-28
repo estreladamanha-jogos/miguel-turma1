@@ -464,9 +464,9 @@ function update(dt) {
 function levarDano(o) {
   if (o && o.tp === 'gelo') { lentoT = 2; o.morto = true; burst(o.x, o.y, '#bfefff', 14, 140); return; }
   if (escudoT > 0) { escudoT = 0; invenc = .6; burst(jog.x, PY, '#7CFF9E', 22, 200); if (o) o.morto = true; return; }
-  vidas--; invenc = PISCAR; shake = .3; burst(jog.x, PY, '#ff5577', 16, 180);
+  vidas = Math.max(0, vidas - 1); invenc = PISCAR; shake = .3; burst(jog.x, PY, '#ff5577', 16, 180);
   if (o) o.morto = true;
-  if (vidas === 0) { estado = 'gameover'; mortes++; }
+  if (vidas <= 0) { estado = 'gameover'; mortes++; }
 }
 
 function atualizarBoss(dt) {
@@ -482,7 +482,7 @@ function atualizarBoss(dt) {
     s.x += s.vx * dt; s.y += s.vy * dt;
     if (Math.abs(s.x - jog.x) < 22 && Math.abs(s.y - PY) < 34 && !s.morto) {
       s.morto = true;
-      if (dashT <= 0 && invenc <= 0) { const sh = escudoT > 0; levarDano(null); if (!sh) vidas--; }
+      if (dashT <= 0 && invenc <= 0) levarDano(null);
     }
     if (fogoT > 0 && Math.abs(s.x - jog.x) < 40 && s.y > PY && s.y < PY + 240) { s.morto = true; burst(s.x, s.y, '#ff9a2e', 8, 100); }
   }
