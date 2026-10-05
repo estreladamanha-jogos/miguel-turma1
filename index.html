@@ -19,10 +19,17 @@
 <div class="touch"><div class="g"><button id="tE">◀</button><button id="tD">▶</button></div><div class="g"><button id="tQ">🔁</button><button id="tP">⚡</button></div></div>
 <script>
 // =============================================================
-// CHANGELOG  v1.3
+// CHANGELOG  v1.4
 //  ✅ corrigido: vidas ficando negativas
+//  ✅ corrigido: dano em dobro dos tiros do chefão
 //  ✅ corrigido: vitória contra o chefão
 //  ✅ corrigido: obstáculos que sobravam na troca de mundo
+//  ✅ novo: combo SUPER FOGO (fogo até 0,5s depois do dash = dobro de alcance + 2 acertos na casca)
+//  ✅ novo: 4º poder ÍMÃ (puxa cristais a até 140px, dura 5s, recarga 12s)
+//  ✅ novo: +1 vida a cada 12 cristais coletados (máximo 5 vidas)
+//  ✅ novo: VITÓRIA PERFEITA (sem perder vida) com luz dourada e "PERFEITO ⭐"
+//  ✅ novo: FÚRIA DO CHEFÃO (núcleo com 1 dash restante vira vermelho e atira em leque)
+//  ✅ novo: melhor tempo salvo no navegador (localStorage)
 //  ✅ testado em todos os mundos, no celular e com o chefão
 // =============================================================
 /* Fagulha: um ET fofo e esquisito (cabeça grande, olhos enormes, orelhas de folha, braços e pernas compridos).
@@ -216,9 +223,11 @@ const BASE_V = 230;             // velocidade da queda (pixels por segundo)
 const META = 800;              // profundidade final (em metros). 1 metro = 10 pixels
 const TAM_MUNDO = 200;          // a cada 250 m entra num mundo novo
 const MUNDO_INICIAL = 0;        // para TESTAR um mundo direto: troque por 1, 2 ou 3 (e volte pra 0 no final!)
-const VIDAS = 4;                   // máximo 4 vidas
+const VIDAS = 4;                   // começa com 4 vidas
+const MAX_VIDAS_CRISTAL = 5;        // teto de vida ganha coletando cristais
+const CRISTAIS_POR_VIDA = 12;       // a cada 12 cristais, +1 vida
 const PISCAR = 1.9;                 // segundos de invencibilidade depois de levar dano
-const CD = { dash: 3, fogo: 5, escudo: 8 };   // recarga de cada poder (segundos)
+const CD = { dash: 3, fogo: 5, escudo: 8, ima: 12 };   // recarga de cada poder (segundos)
 const MULT = [1, 1.36, 1.18, 1.54];   // velocidade de cada mundo
 const _sig = 'F5-MIGUEL-2HD';  // não apague
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -235,22 +244,38 @@ const keys = { left: false, right: false };
 let mundo = MUNDO_INICIAL;
 let bannerT = 0;
 let transT = 0, mundoAnt = 0;
-const cd = { dash: 0, fogo: 0, escudo: 0 };
-let dashT = 0, dashDir = 1, fogoT = 0, escudoT = 0, ghosts = [];
+const cd = { dash: 0, fogo: 0, escudo: 0, ima: 0 };
+let dashT = 0, dashDir = 1, fogoT = 0, escudoT = 0, imaT = 0, ghosts = [];
 let dashJanela = 0, fogoSuper = false;   // combo: fogo usado até 0,5s depois do dash = SUPER FOGO
 let ativo = 0;
 let msgTxt = '', msgT = 0;
 let boss = null, tiros = [];
+let semDano = true;                 // vira false no primeiro golpe real (escudo não conta)
+let tempoVitoria = 0;
+function formatTempo(seg) {
+  const s = Math.max(0, Math.floor(seg)), mm = Math.floor(s / 60), ss = s % 60;
+  return String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+}
+function melhorTempoSalvo() {
+  try { const v = localStorage.getItem('fagulha-melhor-tempo'); return v ? parseFloat(v) : null; } catch (e) { return null; }
+}
+function salvarMelhorTempo(seg) {
+  try {
+    const atual = melhorTempoSalvo();
+    if (atual === null || seg < atual) localStorage.setItem('fagulha-melhor-tempo', String(seg));
+  } catch (e) { /* localStorage indisponível, ignora */ }
+}
 
 function resetar() {
   estado = 'jogando'; t = 0; dist = 0; vidas = VIDAS; lentoT = 0; invenc = 0; cristais = 0; shake = 0;
   jog.x = W / 2; jog.vx = 0; obst = []; gems = []; fx = []; spawnT = 1; gemT = 1;
   mundo = MUNDO_INICIAL; dist = mundo * TAM_MUNDO * 10; bannerT = mundo > 0 ? 2 : 0;
   transT = 0;
-  if (mortes < 3) cd.dash = cd.fogo = cd.escudo = 0; else cd.dash = CD.dash;
-  dashT = fogoT = escudoT = 0; ghosts = []; dashJanela = 0; fogoSuper = false;
+  if (mortes < 3) cd.dash = cd.fogo = cd.escudo = cd.ima = 0; else cd.dash = CD.dash;
+  dashT = fogoT = escudoT = imaT = 0; ghosts = []; dashJanela = 0; fogoSuper = false;
   ativo = 0;
   boss = null; tiros = [];
+  semDano = true; tempoVitoria = 0;
 }
 
 /* ---------- obstáculos ---------- */
@@ -319,6 +344,7 @@ const PODERES = [
   { id: 'dash', nome: 'DASH', ico: '💨', cor: '#00e5ff', cd: CD.dash },
   { id: 'fogo', nome: 'FOGO', ico: '🔥', cor: '#ff8a3a', cd: CD.fogo },
   { id: 'escudo', nome: 'ESCUDO', ico: '🛡️', cor: '#7CFF9E', cd: CD.escudo },
+  { id: 'ima', nome: 'ÍMÃ', ico: '🧲', cor: '#ff6fae', cd: CD.ima },
 ];
 function usar(id) {
   if (estado !== 'jogando' || cd[id] > 0) return;
@@ -331,11 +357,13 @@ function usar(id) {
     if (fogoSuper) { dashJanela = 0; msgTxt = 'SUPER FOGO!'; msgT = 1.3; burst(jog.x, PY + 26, '#ffd060', 18, 160); }
   }
   if (id === 'escudo') { escudoT = 5; }
+  if (id === 'ima') { imaT = 5; }
 }
 function corDoPoder() {
   if (dashT > 0) return '#00e5ff';
   if (fogoT > 0) return '#ff8a3a';
   if (escudoT > 0) return '#7CFF9E';
+  if (imaT > 0) return '#ff6fae';
   return PODERES[ativo].cor;
 }
 /* o fogo REAGE ao mundo: queima galho/pedra, derrete gelo, mas não afeta lava e não funciona sem ar */
@@ -411,6 +439,7 @@ function update(dt) {
   ghosts = ghosts.filter(g => (g.life -= dt) > 0);
   if (escudoT > 0) escudoT -= dt;
   if (fogoT > 0) fogoT -= dt;
+  if (imaT > 0) imaT -= dt;
   if (msgT > 0) msgT -= dt;
 
   // ---- mundos: portais a cada 250 m ----
@@ -438,9 +467,19 @@ function update(dt) {
   // ---- cristais ----
   gemT -= dt;
   if (gemT <= 0 && !boss) { gems.push({ x: rnd(40, W - 40), y: H + 30 }); gemT = .75; }
-  for (const g of gems) g.y -= vel * dt;
+  for (const g of gems) {
+    g.y -= vel * dt;
+    if (imaT > 0) {                              // ímã puxa cristais próximos (obstáculos/tiros nunca são puxados)
+      const dx = jog.x - g.x, dy = (PY + 4) - g.y, d = Math.hypot(dx, dy);
+      if (d < 140 && d > 1) { g.x += dx / d * 320 * dt; g.y += dy / d * 320 * dt; }
+    }
+  }
   gems = gems.filter(g => {
-    if (Math.abs(g.x - jog.x) < 28 && Math.abs(g.y - (PY + 4)) < 44) { cristais++; burst(g.x, g.y, '#7af6ff', 8, 90); return false; }
+    if (Math.abs(g.x - jog.x) < 28 && Math.abs(g.y - (PY + 4)) < 44) {
+      cristais++; burst(g.x, g.y, '#7af6ff', 8, 90);
+      if (cristais % CRISTAIS_POR_VIDA === 0 && vidas < MAX_VIDAS_CRISTAL) { vidas++; msgTxt = '+1 ❤️'; msgT = 1; }
+      return false;
+    }
     return g.y > -30;
   });
 
@@ -475,6 +514,7 @@ function levarDano(o) {
   if (o && o.tp === 'gelo') { lentoT = 2; o.morto = true; burst(o.x, o.y, '#bfefff', 14, 140); return; }
   if (escudoT > 0) { escudoT = 0; invenc = .6; burst(jog.x, PY, '#7CFF9E', 22, 200); if (o) o.morto = true; return; }
   vidas = Math.max(0, vidas - 1); invenc = PISCAR; shake = .3; burst(jog.x, PY, '#ff5577', 16, 180);
+  semDano = false;                     // dano real tira a "vitória perfeita"; o escudo não conta
   if (o) o.morto = true;
   if (vidas <= 0) { estado = 'gameover'; mortes++; }
 }
@@ -485,9 +525,20 @@ function atualizarBoss(dt) {
   if (b.stun > 0) b.stun -= dt; if (b.flash > 0) b.flash -= dt;
   b.x = W / 2 + Math.sin(t * .9) * 120;
   b.y = b.fase === 'nucleo' ? 350 + Math.sin(t * 1.5) * 95 : 430 + Math.sin(t * 1.7) * 10;
-  // tiros: sobem em direção ao Fagulha
+  // tiros: sobem em direção ao Fagulha. FÚRIA: núcleo com 1 só dash restante -> 2 tiros em leque, mais rápido
+  const furia = b.fase === 'nucleo' && b.core === 1;
   b.atk -= dt;
-  if (b.atk <= 0) { tiros.push({ x: b.x, y: b.y - 40, vx: clamp((jog.x - b.x) * .35, -110, 110), vy: -250 }); b.atk = b.fase === 'nucleo' ? 1.5 : 2.1; }
+  if (b.atk <= 0) {
+    const baseVx = clamp((jog.x - b.x) * .35, -110, 110);
+    if (furia) {
+      tiros.push({ x: b.x, y: b.y - 40, vx: baseVx - 70, vy: -250 });
+      tiros.push({ x: b.x, y: b.y - 40, vx: baseVx + 70, vy: -250 });
+      b.atk = 1;
+    } else {
+      tiros.push({ x: b.x, y: b.y - 40, vx: baseVx, vy: -250 });
+      b.atk = b.fase === 'nucleo' ? 1.5 : 2.1;
+    }
+  }
   for (const s of tiros) {
     s.x += s.vx * dt; s.y += s.vy * dt;
     if (Math.abs(s.x - jog.x) < 22 && Math.abs(s.y - PY) < 34 && !s.morto) {
@@ -507,7 +558,7 @@ function atualizarBoss(dt) {
   if (toca) {
     if (b.fase === 'nucleo' && dashT > 0 && b.stun <= 0) {
       b.core--; b.stun = 1.2; b.flash = .6; shake = .25; burst(b.x, b.y, '#ff5aa0', 26, 240);
-      if (b.core < 0) { estado = 'vitoria'; }
+      if (b.core < 0) { estado = 'vitoria'; tempoVitoria = t; salvarMelhorTempo(t); }
     } else if (dashT <= 0 && invenc <= 0) levarDano(null);
   }
 }
@@ -571,6 +622,10 @@ function desenhar() {
     c.strokeStyle = `rgba(124,255,158,${a})`; c.lineWidth = 4; c.beginPath(); c.arc(jog.x, PY + 12, 50, 0, 7); c.stroke();
     c.fillStyle = `rgba(124,255,158,${a * .18})`; c.fill();
   }
+  if (imaT > 0) {
+    const a = imaT < 1 ? (Math.floor(t * 12) % 2 ? .3 : .6) : .5;
+    c.strokeStyle = `rgba(255,111,174,${a})`; c.lineWidth = 2; c.beginPath(); c.arc(jog.x, PY + 12, 140, 0, 7); c.stroke();
+  }
   if (fogoT > 0) {
     const L = alcanceFogo();
     for (let i = 0; i < 46; i++) {
@@ -590,7 +645,10 @@ function desenharBoss() {
   if (!boss) return;
   const b = boss; c.save(); c.translate(b.x, b.y);
   if (b.stun > 0 && Math.floor(t * 16) % 2) c.globalAlpha = .55;
-  const g = c.createRadialGradient(0, 0, 8, 0, 0, 80); g.addColorStop(0, '#ffb3d9'); g.addColorStop(.5, '#e0287a'); g.addColorStop(1, '#5a0f3a');
+  const furia = b.fase === 'nucleo' && b.core === 1;
+  const g = c.createRadialGradient(0, 0, 8, 0, 0, 80);
+  if (furia) { g.addColorStop(0, '#ffb3b3'); g.addColorStop(.5, '#d41818'); g.addColorStop(1, '#4a0505'); }
+  else { g.addColorStop(0, '#ffb3d9'); g.addColorStop(.5, '#e0287a'); g.addColorStop(1, '#5a0f3a'); }
   c.fillStyle = g; c.beginPath(); c.ellipse(0, 0, 66, 54, 0, 0, 7); c.fill();
   c.strokeStyle = '#2a0620'; c.lineWidth = 3; c.stroke();
   c.fillStyle = '#fff'; c.beginPath(); c.arc(-22, -8, 10, 0, 7); c.arc(22, -8, 10, 0, 7); c.fill();
@@ -601,8 +659,9 @@ function desenharBoss() {
     c.beginPath(); c.ellipse(0, 0, 76, 62, 0, 0, 7); c.fill(); c.stroke();
     c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.beginPath(); c.moveTo(-40, -30); c.lineTo(-10, 0); c.lineTo(-30, 30); c.moveTo(30, -34); c.lineTo(8, -6); c.stroke();
   } else {
-    const p = 1 + .12 * Math.sin(t * 8); c.fillStyle = '#fff6a8'; c.beginPath(); c.arc(0, 4, 13 * p, 0, 7); c.fill();
-    c.strokeStyle = 'rgba(255,240,120,.6)'; c.lineWidth = 3; c.beginPath(); c.arc(0, 4, 22 * p, 0, 7); c.stroke();
+    const p = 1 + .12 * Math.sin(t * 8);
+    c.fillStyle = furia ? '#ff3344' : '#fff6a8'; c.beginPath(); c.arc(0, 4, 13 * p, 0, 7); c.fill();
+    c.strokeStyle = furia ? 'rgba(255,60,60,.7)' : 'rgba(255,240,120,.6)'; c.lineWidth = 3; c.beginPath(); c.arc(0, 4, 22 * p, 0, 7); c.stroke();
   }
   c.restore();
 }
@@ -653,6 +712,8 @@ function telas() {
     texto('FAGULHA', W / 2, 150, 34, '#ffe9a8');
     texto('QUEDA ENTRE MUNDOS', W / 2, 200, 12, '#7af6ff');
     drawFagulha(c, W / 2, 345, .9, performance.now() / 1000, { pose: 'stand' });
+    const melhor = melhorTempoSalvo();
+    if (melhor !== null) texto('Melhor tempo: ' + formatTempo(melhor), W / 2, 470, 10, '#bfefff');
     if (Math.floor(performance.now() / 500) % 2) texto('APERTE ESPAÇO', W / 2, 520, 14, '#fff');
   } else if (estado === 'gameover') {
     c.fillStyle = 'rgba(30,0,10,.78)'; c.fillRect(0, 0, W, H);
@@ -661,9 +722,10 @@ function telas() {
     if (Math.floor(performance.now() / 500) % 2) texto('ESPAÇO: JOGAR DE NOVO', W / 2, 400, 11, '#fff');
   } else if (estado === 'vitoria') {
     c.fillStyle = 'rgba(0,20,10,.78)'; c.fillRect(0, 0, W, H);
-    texto('CHEGOU AO FUNDO!', W / 2, 170, 20, '#7CFF9E');
-    drawFagulha(c, W / 2, 300, .95, performance.now() / 1000, { pose: 'cheer', glow: '#7CFF9E' });
-    texto('💎 ' + cristais, W / 2, 470, 16, '#7af6ff');
+    texto('CHEGOU AO FUNDO!', W / 2, 150, 20, semDano ? '#ffd700' : '#7CFF9E');
+    drawFagulha(c, W / 2, 285, .95, performance.now() / 1000, { pose: 'cheer', glow: semDano ? '#ffd700' : '#7CFF9E' });
+    if (semDano) texto('PERFEITO ⭐', W / 2, 400, 14, '#ffd700');
+    texto('💎 ' + cristais + '   ⏱ ' + formatTempo(tempoVitoria), W / 2, 450, 13, '#7af6ff');
     if (Math.floor(performance.now() / 500) % 2) texto('ESPAÇO: JOGAR DE NOVO', W / 2, 540, 11, '#fff');
   }
 }
