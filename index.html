@@ -674,7 +674,8 @@ function texto(txt, x, y, tam, cor, al) {
 function hud() {
   if (estado === 'inicio') return;
   c.font = '20px sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
-  for (let i = 0; i < 3; i++) c.fillText(i < vidas ? '❤️' : '🖤', 12 + i * 26, 22);
+  const vidasMostradas = Math.max(vidas, VIDAS);
+  for (let i = 0; i < vidasMostradas; i++) c.fillText(i < vidas ? '❤️' : '🖤', 12 + i * 26, 22);
   texto('💎 ' + cristais, W - 14, 22, 12, '#7af6ff', 'right');
   if (lentoT > 0) texto('LENTO', W / 2, 60, 10, '#bfefff');
   texto('FASE ' + (mundo + 1) + '/3', 70, 60, 9, '#ffffff', 'left');
