@@ -24,6 +24,7 @@
 //  ✅ corrigido: dano em dobro dos tiros do chefão
 //  ✅ corrigido: vitória contra o chefão
 //  ✅ corrigido: obstáculos que sobravam na troca de mundo
+//  ✅ corrigido: velocidade dos mundos 2 e 3 estava trocada
 //  ✅ novo: combo SUPER FOGO (fogo até 0,5s depois do dash = dobro de alcance + 2 acertos na casca)
 //  ✅ novo: 4º poder ÍMÃ (puxa cristais a até 140px, dura 5s, recarga 12s)
 //  ✅ novo: +1 vida a cada 12 cristais coletados (máximo 5 vidas)
@@ -228,7 +229,7 @@ const MAX_VIDAS_CRISTAL = 5;        // teto de vida ganha coletando cristais
 const CRISTAIS_POR_VIDA = 12;       // a cada 12 cristais, +1 vida
 const PISCAR = 1.9;                 // segundos de invencibilidade depois de levar dano
 const CD = { dash: 3, fogo: 5, escudo: 8, ima: 12 };   // recarga de cada poder (segundos)
-const MULT = [1, 1.36, 1.18, 1.54];   // velocidade de cada mundo
+const MULT = [1, 1.18, 1.36, 1.54];   // velocidade de cada mundo: +18% no 2, +36% no 3, +54% no 4
 const _sig = 'F5-MIGUEL-2HD';  // não apague
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a, b) => a + Math.random() * (b - a);
